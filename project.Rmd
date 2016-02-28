@@ -1,0 +1,136 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Steve Mainprize"
+date: "Sunday, February 28, 2016"
+output: html_document
+---
+
+
+## Introduction
+
+This document describes my approach and results for the Practical Machine Learning assignment.
+
+The objective of the assignment is to build an accurate model for predictiong how well people perform a particular set of activities, based on the measurements from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants.
+
+## Libraries used
+
+The project uses the caret, RCurl, rpart and randomForest libraries.
+
+```{r}
+
+library(caret)
+library(RCurl)
+library(rpart)
+library(randomForest)
+
+```
+
+## Data
+
+The data is provided in the form of a set of training data, in which the outcome to be predicted is included, and a set of 20 testing records, in which the outcome is not provided.  The objective is to predict an outcome for each record in the testing data.
+
+The following code downloads the testing and training data.
+
+```{r}
+filecontents <- getURL('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv', ssl.verifyhost=FALSE, ssl.verifypeer=FALSE)
+testing <- read.csv(textConnection(filecontents), header=TRUE, na.strings=c("NA","#DIV/0!",""))
+
+filecontents <- getURL('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv', ssl.verifyhost=FALSE, ssl.verifypeer=FALSE)
+alltraining <- read.csv(textConnection(filecontents), header=TRUE, na.strings=c("NA","#DIV/0!",""))
+
+```
+
+In order to assess the fitted model before applying it to the testing data, I will split the training data so that 25% of the records form a validation set.
+
+```{r}
+
+set.seed(75125)
+inTrain <- createDataPartition(y=alltraining$classe, p=3/4, list=FALSE)
+training <- alltraining[inTrain, ]
+validation <- alltraining[-inTrain, ]
+
+dim(training)
+dim(validation)
+dim(testing)
+
+```
+
+## Data cleansing
+
+The data has 160 measures, which is probably more than is necessary to develop an accurate model. A visual examination of the data shows that several of the columns are largely unpopulated (or contain 'NA' values). In order to simplify the model and exclude data that is not likely to add much to the model, these columns will be removed. 
+
+```{r}
+
+# identify fields that are primarily empty or 'NA'
+removeBecauseNA <- sapply(training, function(x) mean(is.na(x))) > 0.90
+
+# remove these fields from the training and validation data
+training <- training[, removeBecauseNA==FALSE]
+validation <- validation[, removeBecauseNA==FALSE]
+
+# remove fields that are not related to the activity itself, e.g. time, name of the subject
+training <- subset(training, select=(- c(X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window, num_window)))
+validation <- subset(validation, select=(- c(X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window, num_window)))
+
+```
+
+## Fitting a decision tree to the data
+
+As a first attempt, I decided to use the training data to derive a decision tree. 
+
+```{r}
+
+dtfit <- rpart(classe ~ ., data=training, method="class")
+
+```
+
+Having calculated the prediction model, I applied it to the validation data and produced the confusion matrix, in order to evaluate how good the fit is.
+
+```{r}
+
+dtvalidationpredictions <- predict(dtfit, validation, type="class")
+
+confusionMatrix(dtvalidationpredictions, validation$classe)
+
+```
+
+This fit was not very good - accuracy is about 74%.  I decided to try another method. 
+
+## Fitting a random forest model to the data
+
+For the next attempt, a random forest model was fitted to the training data. 
+
+```{r}
+
+rffit <- randomForest(classe ~ ., data=training, method="class")
+
+```
+
+Having calculated the random forest model, I applied it to the validation data to determine how good the fit was this time.
+
+```{r}
+
+rfvalidationpredictions <- predict(rffit, validation, type="class")
+
+confusionMatrix(rfvalidationpredictions, validation$classe)
+
+```
+
+This fit was much better.
+
+The accuracy from applying the model to the validation data was 99.61%, so the out of sample error is 0.39%.
+
+This model should be good enough to apply to the test data.  
+
+## Applying the model to the test data
+
+I applied the model to the test data to obtain the prediction results.
+
+```{r}
+
+testingpredictions <- predict(rffit, testing, type="class")
+
+testingpredictions
+
+```
+
